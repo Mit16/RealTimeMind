@@ -12,6 +12,9 @@ export const createUserController = async (req, res) => {
   try {
     const user = await userService.createUser(req.body);
     const token = await user.generateJWT();
+
+    delete user._doc.password;
+
     res.status(201).send({ user, token });
   } catch (error) {
     res.status(400).send(error.message);
@@ -39,11 +42,12 @@ export const loginController = async (req, res) => {
         errors: "Invalid credentials",
       });
     }
-
+    delete user._doc.password;
     const token = await user.generateJWT();
     res.status(200).json({ user, token });
   } catch (error) {
-    res.status(400).send(error.message);
+    console.error("Error in loginController:", error); // Log the error for debugging
+    res.status(500).json({ error: "Internal Server Error" });
   }
 };
 
@@ -60,5 +64,20 @@ export const logoutController = async (req, res) => {
   } catch (error) {
     console.log(error);
     res.status(400).send(error.message);
+  }
+};
+
+export const getAllUsersController = async (req, res) => {
+  try {
+    const loggedInUser = await userModel.findOne({ email: req.user.email });
+    const allUsers = await userService.getAllUsers({
+      userId: loggedInUser._id,
+    });
+    return res.status(200).json({
+      users: allUsers,
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(400).json({ errors: err.message });
   }
 };
