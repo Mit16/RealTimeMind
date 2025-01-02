@@ -2,3 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  width: 100%;
+}
+
+.message-box::-webkit-scrollbar {
+  display: none;
+}
+
+.message-box {
+  scroll-behavior: smooth;
+  padding-top: 4rem; /* Ensure messages start below the header */
+}
+
+.hljs {
+  background: #282c34;
+  color: #abb2bf;
+  padding: 1rem;
+  font-family: "Fira Code", monospace;
+  border-radius: 0.5rem;
+}

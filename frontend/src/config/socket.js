@@ -11,6 +11,8 @@ export const initializeSocket = (projectId) => {
       projectId,
     },
   });
+  console.log("Socket initialized:", socketInstance);
+
   return socketInstance;
 };
 

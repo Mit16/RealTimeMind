@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from "react";
+import React, { useState, useEffect, useContext, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import axios from "../config/axios";
 import {
@@ -7,6 +7,9 @@ import {
   sendMessage,
 } from "../config/socket";
 import { UserContext } from "../context/user.context";
+import Markdown from "markdown-to-jsx";
+import hljs from "highlight.js";
+import "highlight.js/styles/atom-one-dark.css"; // Choose a style you like
 
 const Project = () => {
   const location = useLocation();
@@ -17,15 +20,45 @@ const Project = () => {
   const [users, setUsers] = useState([]);
   const [project, setProject] = useState(location.state.project);
   const [message, setMessage] = useState("");
+  const [messages, setMessages] = useState([]); // New state for messages
   const { user } = useContext(UserContext);
-  const messageBox = React.createRef();
+  const messageBox = useRef();
+  const [fileTree, setFileTree] = useState({});
+  const [currentOpenFile, setCurrentOpenFile] = useState(null);
+  const [openFiles, setOpenFiles] = useState([]);
 
   useEffect(() => {
     initializeSocket(project._id);
-
+    console.log("Room ID frontend:", project._id);
     receiveMessage("project-message", (data) => {
-      console.log(data);
-      appendIncomingMessage(data);
+      console.log("received ", data);
+      try {
+        let parsedMessage;
+
+        if (typeof data.message === "string") {
+          // Check if the string is valid JSON
+          try {
+            parsedMessage = JSON.parse(data.message);
+          } catch (jsonError) {
+            // If parsing fails, treat it as a plain string
+            // console.log("JSON Error :", jsonError);
+            parsedMessage = data.message;
+          }
+        } else {
+          parsedMessage = data.message;
+        }
+
+        if (parsedMessage.fileTree) {
+          setFileTree(parsedMessage.fileTree);
+        }
+
+        // Avoid appending if the sender is the current user
+        if (data.sender._id !== user._id) {
+          appendIncomingMessage({ ...data, message: parsedMessage });
+        }
+      } catch (error) {
+        console.error("Error parsing message:", { rawMessage: data, error });
+      }
     });
 
     axios
@@ -48,6 +81,15 @@ const Project = () => {
         console.log(err);
       });
   }, []);
+
+  useEffect(() => {
+    if (currentOpenFile && fileTree[currentOpenFile]) {
+      const codeElement = document.querySelector(".hljs");
+      if (codeElement) {
+        hljs.highlightElement(codeElement);
+      }
+    }
+  }, [currentOpenFile, fileTree]);
 
   const handleUserClick = (userId) => {
     setSelectedUserId(
@@ -74,60 +116,63 @@ const Project = () => {
       });
   };
 
+  const writeAiMessage = (message) => {
+    try {
+      // Parse the message if it's a string
+      const messageObject =
+        typeof message === "string" ? JSON.parse(message) : message;
+      console.log(messageObject);
+      // Safely access properties and render Markdown
+      return (
+        <div className="overflow-auto bg-[#282c34] text-white rounded-lg p-2">
+          <Markdown>
+            {messageObject.text ||
+              messageObject.message ||
+              messageObject.response ||
+              "Invalid message format"}
+          </Markdown>
+        </div>
+      );
+    } catch (error) {
+      console.error("Error processing AI message:", message, error);
+      return (
+        <div className="overflow-auto bg-red-500 text-white rounded-sm p-2">
+          <p>Error: Unable to process the message</p>
+        </div>
+      );
+    }
+  };
+
   const sendMessagefromUser = () => {
-    sendMessage("project-message", {
-      message,
-      sender: user,
-    });
-    appendOutGoingMessage(message);
-    setMessage("");
+    console.log("user :", user);
+    const outgoingMessage = { message, sender: user };
+    console.log("Sending message:", outgoingMessage);
+    sendMessage("project-message", outgoingMessage); // Sends message
+    appendOutGoingMessage(outgoingMessage); // Updates UI
+    setMessage(""); // Clears input
+  };
+
+  const scrollToBottom = () => {
+    const messageBoxx = messageBox.current;
+    if (messageBoxx) {
+      messageBoxx.scrollTop = messageBoxx.scrollHeight;
+    }
   };
 
   const appendIncomingMessage = (messageObject) => {
-    const messageBox = document.querySelector(".message-box");
-    const message = document.createElement("div");
-    message.classList.add(
-      "message",
-      "max-w-56",
-      "flex",
-      "flex-col",
-      "p-2",
-      "bg-slate",
-      "bg-slate-400",
-      "w-fit",
-      "rounded-lg"
-    );
-    message.innerHTML = `<small className='opacity-65 text-xs'>${messageObject.sender.email}</small>
-    <p className="text-sm">${messageObject.message}</p>
-    `;
-    messageBox.appendChild(message);
+    setMessages((prev) => [...prev, messageObject]);
+    scrollToBottom();
   };
 
-  const appendOutGoingMessage = (message) => {
-    const messageBox = document.querySelector(".message-box");
-    const newMessage = document.createElement("div");
-    newMessage.classList.add(
-      "message",
-      "ml-auto",
-      "max-w-56",
-      "flex",
-      "flex-col",
-      "p-2",
-      "bg-slate",
-      "bg-slate-400",
-      "w-fit",
-      "rounded-lg"
-    );
-    newMessage.innerHTML = `<small className='opacity-65 text-xs'>${user.email}</small>
-    <p className="text-sm">${message}</p>
-    `;
-    messageBox.appendChild(newMessage);
+  const appendOutGoingMessage = (messageObject) => {
+    setMessages((prev) => [...prev, messageObject]);
+    scrollToBottom();
   };
 
   return (
-    <main className="h-screen w-screen flex">
-      <section className="left relative flex flex-col h-full min-w-[25%] bg-slate-300">
-        <header className="flex justify-between items-center p-2 px-4 w-full bg-slate-500">
+    <main className="flex h-screen w-screen bg-gray-100">
+      <section className="w-1/4 bg-slate-300 flex flex-col h-full relative">
+        <header className="flex justify-between items-center p-2 px-4 w-full bg-slate-500 absolute top-0 z-10 shadow-md ">
           <button className="flex gap-2" onClick={() => setIsModalOpen(true)}>
             <i className="ri-user-add-fill mr-1"></i>
             <p>Add collaborators</p>
@@ -141,16 +186,33 @@ const Project = () => {
           </button>
         </header>
 
-        <div className="conversation-area flex-grow flex flex-col">
+        <div className="conversation-area flex-grow overflow-hidden flex flex-col">
           <div
             ref={messageBox}
-            className="message-box flex-grow flex flex-col gap-1.5 p-1 overflow-auto max-h-full"
+            className="message-box flex-grow overflow-y-auto p-4 pt-16 space-y-3 scrollbar-thin scrollbar-thumb-blue-300"
           >
-
+            {messages.map((msg, index) => (
+              <div
+                key={index}
+                className={`message  flex flex-col p-2 w-fit rounded-lg ${
+                  msg.sender._id === user._id
+                    ? "ml-auto bg-slate-200"
+                    : "bg-slate-100"
+                } ${msg.sender._id === "ai" ? "max-w-[90%]" : "max-w-[75%]"}`}
+              >
+                <small className="opacity-65 text-xs">{msg.sender.email}</small>
+                <p className="text-sm">
+                  {msg.sender._id === "ai"
+                    ? writeAiMessage(msg.message)
+                    : msg.message}
+                </p>
+              </div>
+            ))}
           </div>
-          <div className="inputField flex w-full ">
+
+          <div className="inputField flex items-center p-4">
             <input
-              className="p-2 px-4 border-none outline-none w-full rounded-md"
+              className="flex-grow p-2 rounded-l-lg focus:outline-none"
               type="text"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
@@ -158,7 +220,10 @@ const Project = () => {
               id="messageBox"
               placeholder="Enter message"
             />
-            <button onClick={sendMessagefromUser} className="px-4 bg-slate-600">
+            <button
+              onClick={sendMessagefromUser}
+              className="p-3 text-white rounded-r-lg bg-slate-600 hover:bg-slate-400"
+            >
               <i className="ri-send-plane-fill"></i>
             </button>
           </div>
@@ -195,6 +260,92 @@ const Project = () => {
               })}
           </div>
         </div>
+      </section>
+
+      <section className="right bg-slate-400 flex-grow h-full flex">
+        <div className="explorer h-full max-w-xs min-w-44 bg-gray-500 p-4 rounded-lg shadow-md">
+          <h2 className="text-xl font-bold pb-4 ">File Explorer</h2>
+          <div className="file-tree w-full space-y-2">
+            {Object.keys(fileTree).map((file, index) => (
+              <button
+                key={index}
+                onClick={() => {
+                  setCurrentOpenFile(file);
+                  setOpenFiles((prev) => [...new Set([...prev, file])]);
+                }}
+                className="tree-element p-2 flex justify-between items-center w-full bg-gray-400 hover:bg-gray-300 text-left rounded-md"
+              >
+                <p className="cursor-pointer font-semibold text-lg w-full truncate">
+                  {file}
+                </p>
+              </button>
+            ))}
+          </div>
+        </div>
+        {currentOpenFile && (
+          <div className="code-edit flex flex-col h-full w-full ">
+            <div className="top flex space-x-2">
+              {openFiles.map((file, index) => (
+                <div
+                  key={index}
+                  className={`code-editor-header cursor-pointer flex justify-between items-center px-4 py-2 ${
+                    file === currentOpenFile ? "bg-gray-300" : "bg-gray-200"
+                  } text-gray-800 rounded-lg shadow-sm`}
+                  onClick={() => setCurrentOpenFile(file)} // Update the current open file
+                >
+                  <h1 className="font-semibold text-lg truncate">{file}</h1>
+                  <button
+                    className="p-1 text-gray-500 hover:text-red-500"
+                    onClick={(e) => {
+                      e.stopPropagation(); // Prevent triggering the parent div's click event
+                      setOpenFiles((prev) =>
+                        prev.filter((openFile) => openFile !== file)
+                      );
+                      if (currentOpenFile === file) {
+                        setCurrentOpenFile(null);
+                      }
+                    }}
+                  >
+                    <i className="ri-close-fill text-xl"></i>
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="bottom flex flex-grow max-w-full shrink overflow-auto">
+              {currentOpenFile && fileTree[currentOpenFile] && (
+                <div className="code-editor-area flex-grow relative bg-[#282c34]">
+                  <div
+                    // className="overflow-auto h-full"
+                    style={{
+                      whiteSpace: "pre-wrap",
+                      counterSet: "line-numbering",
+                    }}
+                  >
+                    <pre
+                      className="hljs h-full outline-none"
+                      contentEditable
+                      suppressContentEditableWarning
+                      onBlur={(e) => {
+                        const updatedContent = e.target.innerText; // Extract text content
+                        setFileTree((prevTree) => ({
+                          ...prevTree,
+                          [currentOpenFile]: updatedContent,
+                        }));
+                      }}
+                      dangerouslySetInnerHTML={{
+                        __html: hljs.highlight(
+                          fileTree[currentOpenFile] || "",
+                          { language: "javascript" } // Specify the language for highlighting
+                        ).value,
+                      }}
+                    ></pre>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Modal */}
